@@ -25,7 +25,6 @@ class GraphicObject:
     scale_y: float = 1.0
     selected: bool = False
     image: Optional[QImage] = None
-    path: Optional[QPainterPath] = None
 
     def center(self) -> QPointF:
         if not self.points:
@@ -36,19 +35,6 @@ class GraphicObject:
 
     def move_by(self, dx: float, dy: float) -> None:
         self.points = [QPointF(p.x() + dx, p.y() + dy) for p in self.points]
-        # Bitmap-backed objects seperti Brush/Fill juga harus ikut berpindah.
-        # Karena bitmap disimpan sebagai layer transparan ukuran canvas, kita
-        # translasi isi bitmapnya agar Select + Drag benar-benar memindahkan
-        # hasil brush, bukan hanya data titiknya.
-        if self.image is not None and not self.image.isNull():
-            moved = QImage(self.image.size(), self.image.format())
-            moved.setDevicePixelRatio(self.image.devicePixelRatio())
-            moved.fill(QColor(0, 0, 0, 0))
-            painter = QPainter(moved)
-            painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-            painter.drawImage(QPointF(dx, dy), self.image)
-            painter.end()
-            self.image = moved
 
     def rect(self) -> QRectF:
         if not self.points:
@@ -58,29 +44,11 @@ class GraphicObject:
         return QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)).normalized()
 
     def contains(self, point: QPointF) -> bool:
-        # Hit-test khusus untuk object berbasis bitmap, terutama Brush dan Fill.
-        # Sebelumnya brush sulit dipilih karena seleksi hanya mengecek bounding box
-        # titik. Sekarang klik dianggap kena object jika pixel transparansinya
-        # benar-benar berisi warna di sekitar posisi mouse.
-        if self.image is not None and not self.image.isNull():
-            dpr = max(1.0, float(self.image.devicePixelRatio()))
-            x = int(point.x() * dpr)
-            y = int(point.y() * dpr)
-            radius = max(2, int((self.width / 2 + 3) * dpr))
-            if x < 0 or y < 0 or x >= self.image.width() or y >= self.image.height():
-                return False
-            x0 = max(0, x - radius)
-            y0 = max(0, y - radius)
-            x1 = min(self.image.width() - 1, x + radius)
-            y1 = min(self.image.height() - 1, y + radius)
-            step = max(1, int(dpr))
-            for yy in range(y0, y1 + 1, step):
-                for xx in range(x0, x1 + 1, step):
-                    if QColor(self.image.pixel(xx, yy)).alpha() > 20:
-                        return True
+        if self.kind == "fill":
             return False
-
         r = self.rect().adjusted(-8, -8, 8, 8)
+        if self.kind in {"line", "brush", "polygon"}:
+            return r.contains(point)
         return r.contains(point)
 
     def clone(self):
@@ -95,7 +63,6 @@ class GraphicObject:
             scale_y=self.scale_y,
             selected=self.selected,
             image=self.image.copy() if self.image is not None else None,
-            path=QPainterPath(self.path) if self.path is not None else None,
         )
 
 
@@ -199,138 +166,12 @@ class Canvas(QWidget):
     def snap(self, p: QPointF) -> QPointF:
         return p
 
-    def object_paint_rect(self, obj: GraphicObject) -> QRectF:
-        """Bounding box untuk optimasi repaint.
-
-        Brush yang panjang bisa membuat aplikasi berat kalau semua stroke digambar
-        ulang pada setiap gerakan mouse. Dengan bounding box ini, paintEvent dapat
-        melewati object yang tidak berada pada area update.
-        """
-        if obj.kind == "fill" and obj.image is not None:
-            return QRectF(self.rect())
-        if obj.path is not None:
-            rect = obj.path.boundingRect()
-        else:
-            rect = obj.rect()
-        pad = max(12, obj.width * 3)
-        return rect.adjusted(-pad, -pad, pad, pad)
-
-    def build_smooth_path(self, points: List[QPointF]) -> QPainterPath:
-        """Fallback path halus untuk object lama/non-bitmap."""
-        if not points:
-            return QPainterPath()
-        if len(points) == 1:
-            path = QPainterPath(points[0])
-            return path
-        path = QPainterPath(points[0])
-        for i in range(1, len(points) - 1):
-            mid = QPointF((points[i].x() + points[i + 1].x()) / 2,
-                          (points[i].y() + points[i + 1].y()) / 2)
-            path.quadTo(points[i], mid)
-        path.lineTo(points[-1])
-        return path
-
-    def make_brush_image(self) -> QImage:
-        # Bitmap brush layer dibuat mengikuti device pixel ratio agar resolusinya
-        # sama tajam dengan shape vector seperti Line/Circle di layar HiDPI.
-        dpr = max(1.0, float(self.devicePixelRatioF()))
-        image = QImage(
-            max(1, int(self.width() * dpr)),
-            max(1, int(self.height() * dpr)),
-            QImage.Format_ARGB32_Premultiplied,
-        )
-        image.setDevicePixelRatio(dpr)
-        image.fill(QColor(0, 0, 0, 0))
-        return image
-
-    def draw_brush_dot(self, obj: GraphicObject, p: QPointF) -> QRectF:
-        # CoretDraw tidak membuat titik otomatis di awal brush.
-        # Fungsi ini hanya dipakai jika suatu saat ingin mendukung single-click dot.
-        # Diameter dibuat tepat sama dengan width, tanpa outline ganda.
-        if obj.image is None:
-            obj.image = self.make_brush_image()
-        painter = QPainter(obj.image)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(obj.stroke))
-        radius = max(0.5, obj.width / 2)
-        painter.drawEllipse(QPointF(p), radius, radius)
-        painter.end()
-        pad = max(8, obj.width * 2)
-        return QRectF(p.x() - pad, p.y() - pad, pad * 2, pad * 2)
-
-    def append_smooth_point(self, obj: GraphicObject, p: QPointF) -> QRectF:
-        """Tambah titik brush ke bitmap layer memakai quadratic midpoint smoothing.
-
-        Versi ini jauh lebih ringan karena stroke tidak dirender ulang sebagai
-        ribuan vector segment setiap mouse bergerak. Semua pixel brush tersimpan
-        di image transparan per-stroke, sehingga hasilnya halus dan tidak putus.
-        """
-        if obj.image is None:
-            obj.image = self.make_brush_image()
-
-        points = obj.points
-        last = points[-1]
-        points.append(p)
-
-        painter = QPainter(obj.image)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        pen = QPen(obj.stroke, obj.width, Qt.SolidLine, Qt.FlatCap, Qt.RoundJoin)
-        painter.setPen(pen)
-
-        path = QPainterPath()
-        if len(points) == 2:
-            # Segmen pertama: garis pendek dengan round cap agar awal stroke mulus.
-            path.moveTo(points[0])
-            path.lineTo(points[1])
-            dirty = QRectF(points[0], points[1]).normalized()
-        else:
-            p0, p1, p2 = points[-3], points[-2], points[-1]
-            start_mid = QPointF((p0.x() + p1.x()) / 2, (p0.y() + p1.y()) / 2)
-            end_mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-            path.moveTo(start_mid)
-            path.quadTo(p1, end_mid)
-            dirty = QRectF(p0, p2).normalized()
-        painter.drawPath(path)
-        painter.end()
-
-        pad = max(14, obj.width * 3)
-        return dirty.adjusted(-pad, -pad, pad, pad)
-
-    def finish_smooth_brush(self, obj: GraphicObject) -> QRectF:
-        if not obj.points:
-            return QRectF()
-        if len(obj.points) == 1:
-            # Hindari titik besar di awal brush. Klik singkat tanpa drag tidak
-            # menghasilkan noda/titik, sehingga ukuran brush tetap konsisten.
-            return QRectF()
-        if obj.image is None:
-            obj.image = self.make_brush_image()
-        p_last = obj.points[-1]
-        if len(obj.points) >= 2:
-            p_prev = obj.points[-2]
-            start_mid = QPointF((p_prev.x() + p_last.x()) / 2, (p_prev.y() + p_last.y()) / 2)
-            painter = QPainter(obj.image)
-            painter.setRenderHint(QPainter.Antialiasing, True)
-            pen = QPen(obj.stroke, obj.width, Qt.SolidLine, Qt.FlatCap, Qt.RoundJoin)
-            painter.setPen(pen)
-            path = QPainterPath(start_mid)
-            path.lineTo(p_last)
-            painter.drawPath(path)
-            painter.end()
-            pad = max(14, obj.width * 3)
-            return QRectF(start_mid, p_last).normalized().adjusted(-pad, -pad, pad, pad)
-        return QRectF()
-
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.fillRect(event.rect(), QColor("#ffffff"))
-        clip_rect = QRectF(event.rect()).adjusted(-4, -4, 4, 4)
+        painter.fillRect(self.rect(), QColor("#ffffff"))
         for obj in self.objects:
-            if self.object_paint_rect(obj).intersects(clip_rect):
-                self.draw_object(painter, obj)
+            self.draw_object(painter, obj)
         if self.preview:
             self.draw_object(painter, self.preview, preview=True)
         if self.poly_points:
@@ -343,19 +184,8 @@ class Canvas(QWidget):
 
 
     def draw_object(self, painter: QPainter, obj: GraphicObject, preview=False):
-        # Bitmap-backed objects, seperti bucket fill dan brush bitmap,
-        # digambar langsung dari image agar ringan dan tidak patah-patah.
-        if obj.image is not None:
+        if obj.kind == "fill" and obj.image is not None:
             painter.drawImage(0, 0, obj.image)
-            # Tetap beri tanda seleksi untuk Brush/Fill bitmap agar user tahu
-            # object berhasil dipilih. Border tidak mengubah isi gambar.
-            if obj.selected and obj.points:
-                painter.save()
-                sel_pen = QPen(QColor("#2563eb"), 2, Qt.DashLine)
-                painter.setPen(sel_pen)
-                painter.setBrush(Qt.NoBrush)
-                painter.drawRect(obj.rect().adjusted(-6, -6, 6, 6))
-                painter.restore()
             return
         painter.save()
         c = obj.center()
@@ -388,12 +218,10 @@ class Canvas(QWidget):
             if len(obj.points) > 1:
                 painter.drawPolygon(obj.points)
         elif obj.kind in {"brush", "eraser"}:
-            # Brush memakai cached smooth path. Kalau belum ada path, bangun sekali
-            # dari points dan simpan kembali ke object.
-            if obj.path is None and obj.points:
-                obj.path = self.build_smooth_path(obj.points)
-            if obj.path is not None:
-                painter.drawPath(obj.path)
+            path = QPainterPath(obj.points[0])
+            for p in obj.points[1:]:
+                path.lineTo(p)
+            painter.drawPath(path)
         painter.restore()
 
     def mousePressEvent(self, event):
@@ -419,9 +247,6 @@ class Canvas(QWidget):
             self.push_undo()
             stroke = QColor("#ffffff") if self.current_tool == "eraser" else self.stroke
             self.current_brush = GraphicObject(self.current_tool, [p], stroke, QColor(0,0,0,0), self.line_width)
-            self.current_brush.image = self.make_brush_image()
-            # Jangan gambar dot saat mouse ditekan. Stroke baru mulai muncul
-            # setelah mouse bergerak, supaya tidak ada bulatan besar di awal.
             self.objects.append(self.current_brush)
         elif self.current_tool == "polygon":
             self.poly_points.append(p)
@@ -444,19 +269,8 @@ class Canvas(QWidget):
                 self.update_status(self.selection_status())
                 self.update()
         elif self.current_brush:
-            # The smoothest optimized brush:
-            # - sampling rapat agar kurva tidak patah,
-            # - render incremental ke bitmap transparan, bukan redraw semua vector,
-            # - repaint hanya area kecil yang berubah.
-            last = self.current_brush.points[-1]
-            dx, dy = p.x() - last.x(), p.y() - last.y()
-            min_dist = max(0.8, min(3.0, self.line_width * 0.18))
-            if math.hypot(dx, dy) >= min_dist:
-                # Repaint penuh agar pixel brush yang sudah ditulis ke bitmap layer
-                # tidak hilang/terpotong ketika mouse bergerak cepat atau jauh.
-                # Tetap ringan karena brush tersimpan sebagai bitmap, bukan ribuan segment.
-                self.append_smooth_point(self.current_brush, p)
-                self.update()
+            self.current_brush.points.append(p)
+            self.update()
         elif self.preview and self.start:
             self.preview.points = [self.start, p]
             self.update()
@@ -470,12 +284,6 @@ class Canvas(QWidget):
             self.preview.points = [self.start, p]
             self.objects.append(self.preview)
             self.preview = None
-            self.update()
-        if self.current_brush is not None:
-            last = self.current_brush.points[-1]
-            if math.hypot(p.x() - last.x(), p.y() - last.y()) > 0.3:
-                self.append_smooth_point(self.current_brush, p)
-            self.finish_smooth_brush(self.current_brush)
             self.update()
         self.dragging_selected = False
         self.move_undo_pushed = False
@@ -757,18 +565,7 @@ class MainWindow(QMainWindow):
         side.setContentsMargins(12, 12, 12, 12)
         side.setSpacing(8)
         self.add_section(side, "TOOLS", [("Select", "select"), ("Brush", "brush"), ("Eraser", "eraser"), ("Fill", "fill")])
-
-        shapes_label = QLabel("SHAPES")
-        shapes_label.setObjectName("sectionLabel")
-        side.addWidget(shapes_label)
-        self.shape_combo = QComboBox()
-        self.shape_combo.setObjectName("shapeCombo")
-        self.shape_combo.addItem("Pilih Shape...", "")
-        for text, tool in [("Point", "point"), ("Line", "line"), ("Circle", "circle"), ("Ellipse", "ellipse"), ("Rectangle", "rectangle"), ("Polygon", "polygon")]:
-            self.shape_combo.addItem(text, tool)
-        self.shape_combo.currentIndexChanged.connect(self.change_shape_tool)
-        side.addWidget(self.shape_combo)
-
+        self.add_section(side, "SHAPES", [("Point", "point"), ("Line", "line"), ("Circle", "circle"), ("Ellipse", "ellipse"), ("Rectangle", "rectangle"), ("Polygon", "polygon")])
         side.addWidget(QLabel("STYLE"))
         stroke_btn = QPushButton("Stroke Color")
         fill_btn = QPushButton("Fill Color")
@@ -842,22 +639,6 @@ class MainWindow(QMainWindow):
     def update_tool_buttons(self, active_tool: str):
         for tool, button in self.tool_buttons.items():
             button.setChecked(tool == active_tool)
-        if hasattr(self, "shape_combo"):
-            shape_tools = {"point", "line", "circle", "ellipse", "rectangle", "polygon"}
-            self.shape_combo.blockSignals(True)
-            if active_tool in shape_tools:
-                idx = self.shape_combo.findData(active_tool)
-                self.shape_combo.setCurrentIndex(idx if idx >= 0 else 0)
-            else:
-                self.shape_combo.setCurrentIndex(0)
-            self.shape_combo.blockSignals(False)
-
-    def change_shape_tool(self):
-        if not hasattr(self, "shape_combo"):
-            return
-        tool = self.shape_combo.currentData()
-        if tool:
-            self.canvas.set_tool(tool)
 
     def color_name(self, color: QColor) -> str:
         if color.alpha() == 0:
@@ -912,10 +693,7 @@ class MainWindow(QMainWindow):
         redo.setStatusTip("Ulangi aksi yang dibatalkan (Ctrl+Shift+Z)")
         redo.triggered.connect(self.canvas.redo)
         clear = QAction("Clear Canvas", self); clear.triggered.connect(self.canvas.clear)
-        delete = QAction("Delete Object", self)
-        delete.setShortcut(QKeySequence("Delete"))
-        delete.setStatusTip("Hapus objek yang dipilih (Delete)")
-        delete.triggered.connect(self.delete_selected)
+        delete = QAction("Delete Object", self); delete.triggered.connect(self.delete_selected)
         edit_menu.addActions([undo, redo, clear, delete])
         view = menubar.addMenu("View")
         coord_info = QAction("Coordinate is shown in status bar", self)
