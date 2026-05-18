@@ -34,7 +34,7 @@ class CanvasWidget(QWidget):
     
     @property
     def selected_object(self) -> Optional[GraphicObject]:
-        return self.selected_object[0] if self.selected_object else None 
+        return self.selected_objects[0] if self.selected_objects else None 
     
     def set_tool(self, tool:BaseTool) -> None:
         self._active_tool = tool 
