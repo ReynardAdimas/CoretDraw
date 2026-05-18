@@ -25,6 +25,11 @@ class CanvasWidget(QWidget):
         # 'bresenham' atau 'dda'
         self.circle_algo = "midpoint"     
         self.ellipse_algo = "midpoint"
+        self._zoom = 1.0 
+        self._zoom_min = 0.1 
+        self._zoom_max = 10.0
+        self._offset_x = 0.0 
+        self._offset_y = 0.0
         # Komponen
         self._renderer = Renderer()
         self.history = HistoryManager()
@@ -50,11 +55,30 @@ class CanvasWidget(QWidget):
         self.objects = state
         self.selected_objects = []
         self.update() 
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.ControlModifier:
+            delta = event.angleDelta().y()
+            factor = 1.15 if delta > 0 else (1 / 1.15)
+            self._zoom = max(self._zoom_min, min(self._zoom_max, self._zoom * factor))
+            self.update()
+            if self.parent_window:
+                self.parent_window.status.showMessage(f"Zoom: {self._zoom * 100:.0f}%")
+            event.accept()
+        elif event.modifiers() & Qt.ShiftModifier:
+            delta = event.angleDelta().y()
+            self._offset_x += 20 if delta > 0 else -20
+            self.update()
+            event.accept()
+        else:
+            super().wheelEvent(event)
     
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.fillRect(self.rect(), QColor("#ffffff"))
+        painter.scale(self._zoom, self._zoom)
+        painter.translate(self._offset_x, self._offset_y)
         clip = event.rect()
         for obj in self.objects:
             self._renderer.draw(painter, obj)

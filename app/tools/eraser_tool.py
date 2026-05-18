@@ -1,20 +1,17 @@
 """
-BrushTool — tool untuk menggambar bebas (freehand brush).
+EraserTool — tool untuk menghapus dengan menggambar warna putih di atas canvas.
 """
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QPainterPath, QImage, QPainter, QPen, QColor
+from PySide6.QtGui import QMouseEvent, QPainterPath, QColor
 
 from app.tools.base_tools import BaseTool
 from app.models.graphic_object import GraphicObject
 
 
-class BrushTool(BaseTool):
+class EraserTool(BaseTool):
     """
-    Tool brush freehand.
-
-    Saat mouse ditekan → buat GraphicObject baru bertipe 'brush' dengan QPainterPath
-    Saat mouse digerak → tambahkan titik ke path dan update preview
-    Saat mouse dilepas → commit ke canvas
+    Tool eraser — menggambar path berwarna putih di atas canvas,
+    efeknya seolah-olah menghapus gambar di bawahnya.
     """
 
     def __init__(self, canvas):
@@ -22,18 +19,17 @@ class BrushTool(BaseTool):
         self._current_obj: GraphicObject | None = None
 
     def on_press(self, pos: QPointF, event: QMouseEvent) -> None:
-        # Simpan state untuk undo sebelum mulai menggambar
         self.canvas.history.push(self.canvas.clone_state())
 
         path = QPainterPath()
         path.moveTo(pos)
 
         self._current_obj = GraphicObject(
-            kind="brush",
+            kind="eraser",
             points=[pos],
-            stroke=self.canvas.stroke_color,
+            stroke=QColor("#ffffff"),   # warna putih = efek hapus
             fill=QColor(0, 0, 0, 0),
-            width=self.canvas.line_width,
+            width=max(self.canvas.line_width * 3, 12),  # eraser lebih tebal
             path=path,
         )
         self.canvas.objects.append(self._current_obj)

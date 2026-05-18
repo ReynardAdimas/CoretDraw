@@ -40,6 +40,14 @@ class TransformDialog(QDialog):
             fields : list of (label, default, min, max)
         """
         super().__init__(parent)
+        self.setStyleSheet("""
+            QDialog { background: #ffffff; }
+            QLabel { color: #111827; background: transparent; }
+            QDoubleSpinBox { color: #111827; background: #ffffff; border: 1px solid #d1d5db; border-radius: 4px; padding: 3px; }
+            QPushButton { color: #111827; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 5px 8px; }
+            QPushButton:hover { background: #e0ecff; }
+        """)
+        self.setWindowTitle(title)
         self.setWindowTitle(title)
         self._spins = []
         layout = QFormLayout(self)
@@ -397,7 +405,7 @@ class Sidebar(QFrame):
         if d.exec():
             dx, dy = d.values()
             self._canvas.history.push(self._canvas.clone_state())
-            from app.transform.transformer import Transformer
+            from app.transforms.transformer import Transformer
             for obj in self._canvas.selected_objects:
                 Transformer.translate(obj, dx, dy)
             self._canvas.update()
@@ -413,7 +421,7 @@ class Sidebar(QFrame):
         if d.exec():
             angle = d.values()[0]
             self._canvas.history.push(self._canvas.clone_state())
-            from app.transform.transformer import Transformer
+            from app.transforms.transformer import Transformer
             for obj in self._canvas.selected_objects:
                 Transformer.rotate(obj, angle)
             self._canvas.update()
@@ -429,7 +437,7 @@ class Sidebar(QFrame):
         if d.exec():
             sx, sy = d.values()
             self._canvas.history.push(self._canvas.clone_state())
-            from app.transform.transformer import Transformer
+            from app.transforms.transformer import Transformer
             for obj in self._canvas.selected_objects:
                 Transformer.scale(obj, sx, sy)
             self._canvas.update()
@@ -438,7 +446,7 @@ class Sidebar(QFrame):
         if not self._canvas.selected_objects:
             return
         self._canvas.history.push(self._canvas.clone_state())
-        from app.transform.transformer import Transformer
+        from app.transforms.transformer import Transformer
         for obj in self._canvas.selected_objects:
             Transformer.grayscale(obj)
         self._canvas.update()
@@ -447,7 +455,7 @@ class Sidebar(QFrame):
         if not self._canvas.selected_objects:
             return
         self._canvas.history.push(self._canvas.clone_state())
-        from app.transform.transformer import Transformer
+        from app.transforms.transformer import Transformer
         for obj in self._canvas.selected_objects:
             Transformer.reset(obj)
         self._canvas.update()

@@ -16,21 +16,12 @@ class Renderer:
     """
 
     def draw(self, painter: QPainter, obj: GraphicObject, preview: bool = False) -> None:
-        """
-        Gambar satu objek ke painter.
-        Args:
-            painter : QPainter aktif
-            obj     : objek yang akan digambar
-            preview : jika True, gambar semi-transparan sebagai preview
-        """
-        # Objek bitmap (brush, eraser, fill) digambar langsung dari image
         if obj.image is not None:
             painter.drawImage(0, 0, obj.image)
             if obj.selected and obj.points:
                 self._draw_selection_box(painter, obj)
             return
 
-        # Setup transformasi untuk rotate & scale
         painter.save()
         c = obj.center()
         painter.translate(c)
@@ -38,19 +29,14 @@ class Renderer:
         painter.scale(obj.scale_x, obj.scale_y)
         painter.translate(-c)
 
-        # Setup warna
         color = QColor(obj.stroke)
         if preview:
             color.setAlpha(150)
 
-        # Setup pen
         pen = QPen(color, obj.width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        if obj.selected:
-            pen = QPen(QColor("#2563eb"), max(2, obj.width), Qt.DashLine)
         painter.setPen(pen)
         painter.setBrush(QBrush(obj.fill) if obj.fill.alpha() > 0 else Qt.NoBrush)
 
-        # Dispatch ke method yang sesuai
         if obj.kind == "point":
             self._draw_point(painter, obj)
         elif obj.kind == "line":
@@ -68,6 +54,9 @@ class Renderer:
 
         painter.restore()
 
+    # ← dipindah ke sini, di luar save/restore
+        if obj.selected and obj.points:
+            self._draw_selection_box(painter, obj)
     # ── Shape renderers ─────────────────────────────────────────────────────
 
     def _draw_point(self, painter: QPainter, obj: GraphicObject) -> None:
@@ -158,7 +147,14 @@ class Renderer:
             painter.drawPath(obj.path)
 
     def _draw_selection_box(self, painter: QPainter, obj: GraphicObject) -> None:
-        x0, y0, x1, y1 = obj.bounding_rect()
+        import math
+        if obj.kind == "circle" and len(obj.points) >= 2:
+            cx, cy = obj.points[0].x(), obj.points[0].y()
+            r = math.hypot(obj.points[1].x() - cx, obj.points[1].y() - cy)
+            x0, y0, x1, y1 = cx - r, cy - r, cx + r, cy + r
+        else:
+            x0, y0, x1, y1 = obj.bounding_rect()
+    
         sel_pen = QPen(QColor("#2563eb"), 1, Qt.DashLine)
         painter.setPen(sel_pen)
         painter.setBrush(Qt.NoBrush)

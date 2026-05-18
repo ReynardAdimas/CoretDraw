@@ -1,13 +1,18 @@
-from PySide6.QtWidgets import (
-QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-QStatusBar, QAction, QKeySequence, QFileDialog, QMessageBox
-)
+# from PySide6.QtWidgets import (
+# QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+# QStatusBar, QAction, QKeySequence, QFileDialog, QMessageBox
+# )
 from PySide6.QtGui import QKeySequence, QImage, QPainter, QColor
 from PySide6.QtCore import Qt 
 
 from app.canvas.canvas_widget import CanvasWidget
 from app.ui.sidebar import Sidebar
 from app.animation.animator import Animator
+from PySide6.QtWidgets import (
+QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+QStatusBar, QFileDialog, QMessageBox
+)
+from PySide6.QtGui import QAction
 
 class MainWindow(QMainWindow):
     def __init__(self):
