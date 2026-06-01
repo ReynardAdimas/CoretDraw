@@ -3,11 +3,10 @@
 # QStatusBar, QAction, QKeySequence, QFileDialog, QMessageBox
 # )
 from PySide6.QtGui import QKeySequence, QImage, QPainter, QColor
-from PySide6.QtCore import Qt 
+from PySide6.QtCore import Qt, QPoint, QDir
 
 from app.canvas.canvas_widget import CanvasWidget
 from app.ui.sidebar import Sidebar
-from app.animation.animator import Animator
 from PySide6.QtWidgets import (
 QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
 QStatusBar, QFileDialog, QMessageBox
@@ -21,7 +20,6 @@ class MainWindow(QMainWindow):
         self.resize(1200, 760)
         # Canvas & komponen utama
         self.canvas = CanvasWidget(self)
-        self.animator = Animator(self.canvas)
         # Status bar
         self.status = QStatusBar()
         self.setStatusBar(self.status)
@@ -60,15 +58,6 @@ class MainWindow(QMainWindow):
         del_a.setShortcut(QKeySequence("Delete")) 
         del_a.triggered.connect(self.sidebar.delete_selected)
         edit_m.addActions([undo_a, redo_a, del_a])
-        # Animation
-        anim_m = mb.addMenu("Animation")
-        for label, mode in [("Move", "move"), ("Rotate", "rotate"),("Scale", "scale"), ("Bounce", "bounce")]:
-            a = QAction(label, self)
-            a.triggered.connect(lambda _, m=mode: self.animator.start(m))
-            anim_m.addAction(a)
-        stop_a = QAction("Stop", self); 
-        stop_a.triggered.connect(self.animator.stop)
-        anim_m.addAction(stop_a)
         # Help
         help_m = mb.addMenu("Help")
         about_a = QAction("About", self); about_a.triggered.connect(self._about)
@@ -82,13 +71,24 @@ class MainWindow(QMainWindow):
     def _export_png(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export PNG", "output.png", "PNG (*.png)")
         if path:
+            if not path.lower().endswith(".png"):
+                path += ".png"
             img = QImage(self.canvas.size(), QImage.Format_ARGB32)
+            if img.isNull():
+                QMessageBox.warning(self, "Export PNG Gagal", "Ukuran canvas tidak valid.")
+                return
             img.fill(QColor("#ffffff"))
             p = QPainter(img)
-            self.canvas.render(p)
+            self.canvas.render(p, QPoint())
             p.end()
-            img.save(path)
-            self.status.showMessage(f"Tersimpan: {path}") 
+            if img.save(QDir.toNativeSeparators(path), "PNG"):
+                self.status.showMessage(f"Tersimpan: {path}")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Export PNG Gagal",
+                    "File tidak bisa disimpan. Pastikan folder tujuan bisa ditulis dan nama file valid.",
+                )
     
     def _about(self):
         QMessageBox.information(self, "Tentang Aplikasi",
@@ -105,13 +105,13 @@ class MainWindow(QMainWindow):
     def _apply_style(self):
         self.setStyleSheet("""
         QMainWindow { background: #f5f6f8; }
-        QMenuBar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 
+        QMenuBar { background: #fff; border-bottom: 1px solid #e2e8f0; color: #111827; padding: 
         4px; }
-        QMenuBar::item { padding: 6px 10px; border-radius: 4px; }
-                                   QMenuBar::item:selected { background: #e0ecff; }
-        QMenu { background: #fff; border: 1px solid #e2e8f0; }
-        QMenu::item { padding: 6px 20px; }
-        QMenu::item:selected { background: #e0ecff; }
+        QMenuBar::item { color: #111827; padding: 6px 10px; border-radius: 4px; }
+                                   QMenuBar::item:selected { background: #e0ecff; color: #111827; }
+        QMenu { background: #fff; border: 1px solid #e2e8f0; color: #111827; }
+        QMenu::item { color: #111827; padding: 6px 20px; }
+        QMenu::item:selected { background: #e0ecff; color: #111827; }
         QStatusBar { background: #fff; border-top: 1px solid #e2e8f0; color: 
         #374151; }
         """)
