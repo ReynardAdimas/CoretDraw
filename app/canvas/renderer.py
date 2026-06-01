@@ -1,6 +1,6 @@
 import math
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QPolygonF
 
 from app.models.graphic_object import GraphicObject
 from app.algorithms.line import bresenham_line, dda_line
@@ -47,8 +47,10 @@ class Renderer:
             self._draw_ellipse(painter, obj)
         elif obj.kind == "rectangle":
             self._draw_rectangle(painter, obj)
-        elif obj.kind == "polygon":
-            self._draw_polygon(painter, obj)
+        elif obj.kind == "triangle":
+            self._draw_triangle(painter, obj)
+        elif obj.kind == "trapezoid":
+            self._draw_trapezoid(painter, obj)
         elif obj.kind in {"brush", "eraser"}:
             self._draw_brush(painter, obj)
 
@@ -138,9 +140,50 @@ class Renderer:
         rect = QRectF(obj.points[0], obj.points[1]).normalized()
         painter.drawRect(rect)
 
-    def _draw_polygon(self, painter: QPainter, obj: GraphicObject) -> None:
-        if len(obj.points) > 1:
-            painter.drawPolygon(obj.points)
+    def _draw_triangle(self, painter: QPainter, obj: GraphicObject) -> None:
+        if len(obj.points) < 2:
+            return
+        rect = QRectF(obj.points[0], obj.points[1]).normalized()
+        points = [
+            QPointF(rect.center().x(), rect.top()),
+            QPointF(rect.left(), rect.bottom()),
+            QPointF(rect.right(), rect.bottom()),
+        ]
+        self._draw_algorithm_polygon(painter, obj, points)
+
+    def _draw_trapezoid(self, painter: QPainter, obj: GraphicObject) -> None:
+        if len(obj.points) < 2:
+            return
+        rect = QRectF(obj.points[0], obj.points[1]).normalized()
+        inset = rect.width() * 0.25
+        points = [
+            QPointF(rect.left() + inset, rect.top()),
+            QPointF(rect.right() - inset, rect.top()),
+            QPointF(rect.right(), rect.bottom()),
+            QPointF(rect.left(), rect.bottom()),
+        ]
+        self._draw_algorithm_polygon(painter, obj, points)
+
+    def _draw_algorithm_polygon(
+        self, painter: QPainter, obj: GraphicObject, points: list[QPointF]
+    ) -> None:
+        if obj.fill.alpha() > 0:
+            current_pen = painter.pen()
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(obj.fill))
+            painter.drawPolygon(QPolygonF(points))
+            painter.setPen(current_pen)
+            painter.setBrush(Qt.NoBrush)
+
+        for start, end in zip(points, points[1:] + points[:1]):
+            x0, y0 = int(start.x()), int(start.y())
+            x1, y1 = int(end.x()), int(end.y())
+            if obj.line_algo == "dda":
+                pixels = dda_line(x0, y0, x1, y1)
+            else:
+                pixels = bresenham_line(x0, y0, x1, y1)
+            for x, y in pixels:
+                painter.drawPoint(x, y)
 
     def _draw_brush(self, painter: QPainter, obj: GraphicObject) -> None:
         if obj.path is not None:

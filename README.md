@@ -6,7 +6,7 @@ CoretDraw adalah aplikasi grafika 2D interaktif berbasis Python dan PySide6. Pro
 
 - Canvas gambar interaktif berbasis Qt.
 - Tool utama: Select, Brush, Eraser, dan Fill.
-- Shape: Point, Line, Circle, Ellipse, Rectangle, dan Polygon.
+- Shape: Point, Line, Circle, Ellipse, Rectangle, Triangle, dan Trapezoid.
 - Pilihan algoritma:
   - Garis: Bresenham dan DDA.
   - Lingkaran: Midpoint dan Bresenham.

@@ -1,6 +1,6 @@
 from typing import List, Optional
-from PySide6.QtCore import QPointF, Qt 
-from PySide6.QtGui import QPainter, QColor, QImage 
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QPainter, QColor, QImage, QPen
 from PySide6.QtWidgets import QWidget 
 
 from app.models.graphic_object import GraphicObject
@@ -16,6 +16,7 @@ class CanvasWidget(QWidget):
         # State canvas
         self.objects: List[GraphicObject] = []
         self.preview_object: Optional[GraphicObject] = None
+        self.selection_rect_preview: Optional[QRectF] = None
         self.selected_objects: List[GraphicObject] = []
         # Preferensi gambar
         self.stroke_color = QColor("#111827")
@@ -44,6 +45,7 @@ class CanvasWidget(QWidget):
     def set_tool(self, tool:BaseTool) -> None:
         self._active_tool = tool 
         self.preview_object = None 
+        self.selection_rect_preview = None
         self.update() 
     
     def clone_state(self) -> List[GraphicObject]:
@@ -84,6 +86,17 @@ class CanvasWidget(QWidget):
             self._renderer.draw(painter, obj)
         if self.preview_object:
             self._renderer.draw(painter, self.preview_object, preview=True) 
+        if self.selection_rect_preview:
+            self._draw_selection_rect_preview(painter)
+
+    def _draw_selection_rect_preview(self, painter: QPainter) -> None:
+        rect = self.selection_rect_preview.normalized()
+        painter.save()
+        pen = QPen(QColor("#2563eb"), 1, Qt.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(rect)
+        painter.restore()
     
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self._active_tool:

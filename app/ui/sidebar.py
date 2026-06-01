@@ -3,7 +3,7 @@ Sidebar — panel kontrol di sebelah kiri canvas.
 
 Berisi:
   - Tombol tool (Select, Brush, Eraser, Fill)
-  - Dropdown shape (Point, Line, Circle, Ellipse, Rectangle, Polygon)
+  - Dropdown shape (Point, Line, Circle, Ellipse, Rectangle, Triangle, Trapezoid)
   - Pilihan algoritma garis, lingkaran, dan elips
   - Picker warna Stroke dan Fill
   - Slider ukuran brush / ketebalan garis
@@ -152,7 +152,8 @@ class Sidebar(QFrame):
             ("Circle",    "circle"),
             ("Ellipse",   "ellipse"),
             ("Rectangle", "rectangle"),
-            ("Polygon",   "polygon"),
+            ("Triangle",  "triangle"),
+            ("Trapezoid", "trapezoid"),
         ]:
             self._shape_combo.addItem(text, kind)
 
@@ -255,7 +256,6 @@ class Sidebar(QFrame):
             ("Rotate",    self._do_rotate),
             ("Scale",     self._do_scale),
             ("Grayscale", self._do_grayscale),
-            ("Reset",     self._do_reset_transform),
         ]
 
         for i, (text, slot) in enumerate(actions):
